@@ -194,7 +194,7 @@
 <script>
   // Intentar detectar la URL del backend desde variable de entorno inyectada via Nginx
   // o usar valor por defecto
-  const defaultUrl = window.BACKEND_URL || 'http://localhost:3001';
+  const defaultUrl = window.BACKEND_URL || '';
   document.getElementById('apiUrl').value = defaultUrl;
 
   function getUrl() {
