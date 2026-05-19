@@ -57,7 +57,7 @@ jobs:
     needs: build-and-push
 
     steps:
-      - name: 🚀 Despliegue en EC2 Backend vía bastion
+      - name: Despliegue en EC2 Backend vía bastion
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_FRONTEND_HOST }}
