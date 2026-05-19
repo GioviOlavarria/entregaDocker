@@ -85,39 +85,36 @@ jobs:
     needs: build-and-push
 
     steps:
-      - name: 🚀 Despliegue en EC2 Backend
+      - name: 🚀 Despliegue en EC2 Backend vía Frontend (bastion)
         uses: appleboy/ssh-action@v1.0.3
         with:
-          host: ${{ secrets.EC2_BACKEND_HOST }}
-          username: ${{ secrets.EC2_BACKEND_USER }}
-          key: ${{ secrets.EC2_BACKEND_SSH_KEY }}
+          host: ${{ secrets.EC2_FRONTEND_HOST }}
+          username: ${{ secrets.EC2_FRONTEND_USER }}
+          key: ${{ secrets.EC2_FRONTEND_SSH_KEY }}
+          proxy_host: ""
           script: |
-            # Login a Docker Hub en la instancia remota
-            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login \
-              -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-
-            # Detener y eliminar contenedor anterior (si existe)
-            docker stop innovatech-backend 2>/dev/null || true
-            docker rm   innovatech-backend 2>/dev/null || true
-
-            # Descargar imagen más reciente
-            docker pull ${{ env.IMAGE_BACKEND }}:latest
-
-            # Iniciar nuevo contenedor con variables de entorno desde secrets
-            docker run -d \
-              --name innovatech-backend \
-              --restart unless-stopped \
-              -p 3001:8081 \
-              -e DB_ENDPOINT="${{ secrets.DB_ENDPOINT }}" \
-              -e DB_PORT="3306" \
-              -e DB_NAME="${{ secrets.DB_NAME }}" \
-              -e DB_USERNAME="${{ secrets.DB_USERNAME }}" \
-              -e DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
-              ${{ env.IMAGE_BACKEND }}:latest
-
-            # Limpiar imágenes antiguas para liberar espacio
-            docker image prune -f
-
+            # Desde el Frontend, ejecutar comandos en el Backend via SSH
+            ssh -i ~/.ssh/innovatech_backend \
+                -o StrictHostKeyChecking=no \
+                ec2-user@${{ secrets.EC2_BACKEND_HOST }} << 'ENDSSH'
+              echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login \
+                -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+              docker stop innovatech-backend 2>/dev/null || true
+              docker rm   innovatech-backend 2>/dev/null || true
+              docker pull ${{ secrets.DOCKERHUB_USERNAME }}/innovatech-backend:latest
+              docker run -d \
+                --name innovatech-backend \
+                --restart unless-stopped \
+                -p 3001:8081 \
+                -e DB_ENDPOINT="${{ secrets.DB_ENDPOINT }}" \
+                -e DB_PORT="3306" \
+                -e DB_NAME="${{ secrets.DB_NAME }}" \
+                -e DB_USERNAME="${{ secrets.DB_USERNAME }}" \
+                -e DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+                -e SPRING_DATASOURCE_URL="jdbc:mysql://${{ secrets.DB_ENDPOINT }}:3306/${{ secrets.DB_NAME }}?useSSL=false&serverTimezone=UTC&createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true" \
+                ${{ secrets.DOCKERHUB_USERNAME }}/innovatech-backend:latest
+              docker image prune -f
+            ENDSSH
             echo "✅ Backend desplegado exitosamente"
 
   # ============================================================
