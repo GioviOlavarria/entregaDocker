@@ -1,0 +1,162 @@
+name: CI/CD Pipeline — Innovatech Chile
+
+# ============================================================
+# DISPARADOR: Solo la rama "deploy" activa el pipeline
+# Esto separa desarrollo (main) del despliegue productivo
+# ============================================================
+on:
+  push:
+    branches:
+      - deploy
+
+# Variables globales del pipeline
+env:
+  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+  IMAGE_BACKEND: ${{ secrets.DOCKERHUB_USERNAME }}/innovatech-backend
+  IMAGE_FRONTEND: ${{ secrets.DOCKERHUB_USERNAME }}/innovatech-frontend
+
+jobs:
+  # ============================================================
+  # JOB 1: BUILD Y PUSH DE IMÁGENES DOCKER
+  # ============================================================
+  build-and-push:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: ⬇️ Checkout del código
+        uses: actions/checkout@v4
+
+      - name: 🔐 Login a Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      # Cache de capas Docker para acelerar builds posteriores
+      - name: 🗂️ Configurar caché Docker
+        uses: actions/cache@v4
+        with:
+          path: /tmp/.buildx-cache
+          key: ${{ runner.os }}-buildx-${{ github.sha }}
+          restore-keys: |
+            ${{ runner.os }}-buildx-
+
+      - name: 🏗️ Configurar Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: 🐳 Build y Push — Backend (Spring Boot)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          dockerfile: ./backend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_BACKEND }}:latest
+            ${{ env.IMAGE_BACKEND }}:${{ github.sha }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
+      - name: 🌐 Build y Push — Frontend (Nginx)
+        uses: docker/build-push-action@v5
+        with:
+          context: ./frontend
+          dockerfile: ./frontend/Dockerfile
+          push: true
+          tags: |
+            ${{ env.IMAGE_FRONTEND }}:latest
+            ${{ env.IMAGE_FRONTEND }}:${{ github.sha }}
+          cache-from: type=local,src=/tmp/.buildx-cache
+          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
+
+      # Rotar caché para evitar crecimiento indefinido
+      - name: 🔄 Actualizar caché
+        run: |
+          rm -rf /tmp/.buildx-cache
+          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
+
+  # ============================================================
+  # JOB 2: DEPLOY EN EC2 BACKEND
+  # Corre DESPUÉS del build exitoso
+  # ============================================================
+  deploy-backend:
+    name: Deploy Backend → EC2
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+      - name: 🚀 Despliegue en EC2 Backend
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_BACKEND_HOST }}
+          username: ${{ secrets.EC2_BACKEND_USER }}
+          key: ${{ secrets.EC2_BACKEND_SSH_KEY }}
+          script: |
+            # Login a Docker Hub en la instancia remota
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login \
+              -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+            # Detener y eliminar contenedor anterior (si existe)
+            docker stop innovatech-backend 2>/dev/null || true
+            docker rm   innovatech-backend 2>/dev/null || true
+
+            # Descargar imagen más reciente
+            docker pull ${{ env.IMAGE_BACKEND }}:latest
+
+            # Iniciar nuevo contenedor con variables de entorno desde secrets
+            docker run -d \
+              --name innovatech-backend \
+              --restart unless-stopped \
+              -p 3001:8081 \
+              -e DB_ENDPOINT="${{ secrets.DB_ENDPOINT }}" \
+              -e DB_PORT="3306" \
+              -e DB_NAME="${{ secrets.DB_NAME }}" \
+              -e DB_USERNAME="${{ secrets.DB_USERNAME }}" \
+              -e DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
+              ${{ env.IMAGE_BACKEND }}:latest
+
+            # Limpiar imágenes antiguas para liberar espacio
+            docker image prune -f
+
+            echo "✅ Backend desplegado exitosamente"
+
+  # ============================================================
+  # JOB 3: DEPLOY EN EC2 FRONTEND
+  # Corre DESPUÉS del build exitoso
+  # ============================================================
+  deploy-frontend:
+    name: Deploy Frontend → EC2
+    runs-on: ubuntu-latest
+    needs: build-and-push
+
+    steps:
+      - name: 🚀 Despliegue en EC2 Frontend
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.EC2_FRONTEND_HOST }}
+          username: ${{ secrets.EC2_FRONTEND_USER }}
+          key: ${{ secrets.EC2_FRONTEND_SSH_KEY }}
+          script: |
+            # Login a Docker Hub en la instancia remota
+            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login \
+              -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+            # Detener y eliminar contenedor anterior (si existe)
+            docker stop innovatech-frontend 2>/dev/null || true
+            docker rm   innovatech-frontend 2>/dev/null || true
+
+            # Descargar imagen más reciente
+            docker pull ${{ env.IMAGE_FRONTEND }}:latest
+
+            # Iniciar nuevo contenedor
+            docker run -d \
+              --name innovatech-frontend \
+              --restart unless-stopped \
+              -p 80:8080 \
+              -p 8080:8080 \
+              ${{ env.IMAGE_FRONTEND }}:latest
+
+            # Limpiar imágenes antiguas
+            docker image prune -f
+
+            echo "✅ Frontend desplegado exitosamente"

@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Innovatech Chile — Gestión de Despachos</title>
+  <style>
+    :root {
+      --primary: #0a2540;
+      --accent: #00b4d8;
+      --bg: #f0f4f8;
+      --white: #ffffff;
+      --danger: #e63946;
+      --success: #2a9d8f;
+      --text: #1d3557;
+      --muted: #6b7280;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+    header {
+      background: var(--primary);
+      color: var(--white);
+      padding: 1rem 2rem;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    header h1 { font-size: 1.4rem; font-weight: 700; }
+    header span { font-size: 0.85rem; color: var(--accent); }
+    .status-badge {
+      margin-left: auto;
+      padding: 0.3rem 0.8rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+    .status-badge.ok { background: var(--success); color: white; }
+    .status-badge.error { background: var(--danger); color: white; }
+    .status-badge.checking { background: var(--muted); color: white; }
+
+    main { max-width: 1100px; margin: 2rem auto; padding: 0 1.5rem; }
+    .api-config {
+      background: var(--white);
+      border-radius: 12px;
+      padding: 1.2rem 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+      display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;
+    }
+    .api-config label { font-weight: 600; font-size: 0.9rem; }
+    .api-config input {
+      flex: 1; min-width: 220px;
+      padding: 0.5rem 0.8rem;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 0.9rem;
+    }
+    .btn {
+      padding: 0.55rem 1.2rem;
+      border-radius: 8px;
+      border: none;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.9rem;
+      transition: opacity 0.15s;
+    }
+    .btn:hover { opacity: 0.85; }
+    .btn-primary { background: var(--accent); color: var(--primary); }
+    .btn-success { background: var(--success); color: white; }
+    .btn-danger  { background: var(--danger); color: white; }
+    .btn-sm { padding: 0.3rem 0.7rem; font-size: 0.8rem; }
+
+    .card {
+      background: var(--white);
+      border-radius: 12px;
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.08);
+    }
+    .card h2 { font-size: 1.1rem; margin-bottom: 1rem; color: var(--primary); }
+
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 0.8rem;
+    }
+    .form-group { display: flex; flex-direction: column; gap: 0.3rem; }
+    .form-group label { font-size: 0.8rem; font-weight: 600; color: var(--muted); }
+    .form-group input {
+      padding: 0.5rem 0.7rem;
+      border: 1px solid #d1d5db;
+      border-radius: 8px;
+      font-size: 0.9rem;
+    }
+
+    table { width: 100%; border-collapse: collapse; font-size: 0.9rem; }
+    th {
+      background: var(--primary);
+      color: var(--white);
+      padding: 0.7rem 1rem;
+      text-align: left;
+      font-weight: 600;
+    }
+    td { padding: 0.6rem 1rem; border-bottom: 1px solid #e5e7eb; }
+    tr:hover td { background: #f8fafc; }
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.6rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 700;
+    }
+    .badge-yes { background: #d1fae5; color: #065f46; }
+    .badge-no  { background: #fee2e2; color: #991b1b; }
+
+    #msg {
+      padding: 0.8rem 1rem;
+      border-radius: 8px;
+      margin-bottom: 1rem;
+      font-size: 0.9rem;
+      display: none;
+    }
+    #msg.ok    { background: #d1fae5; color: #065f46; display: block; }
+    #msg.error { background: #fee2e2; color: #991b1b; display: block; }
+    .empty { text-align: center; color: var(--muted); padding: 2rem; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>Innovatech Chile</h1>
+    <span>Sistema de Gestión de Despachos</span>
+  </div>
+  <div id="statusBadge" class="status-badge checking">Verificando backend…</div>
+</header>
+
+<main>
+  <!-- Configuración URL del backend -->
+  <div class="api-config">
+    <label for="apiUrl">URL del Backend:</label>
+    <input id="apiUrl" type="text" placeholder="http://&lt;BACKEND_IP&gt;:3001" />
+    <button class="btn btn-primary" onclick="checkBackend()">Conectar</button>
+  </div>
+
+  <div id="msg"></div>
+
+  <!-- Formulario nuevo despacho -->
+  <div class="card">
+    <h2>➕ Crear Despacho</h2>
+    <div class="form-grid">
+      <div class="form-group">
+        <label>Fecha Despacho</label>
+        <input type="date" id="f_fecha" />
+      </div>
+      <div class="form-group">
+        <label>Patente Camión</label>
+        <input type="text" id="f_patente" placeholder="ABCD12" />
+      </div>
+      <div class="form-group">
+        <label>Intento #</label>
+        <input type="number" id="f_intento" value="1" min="1" />
+      </div>
+      <div class="form-group">
+        <label>ID Compra</label>
+        <input type="number" id="f_idCompra" placeholder="1001" />
+      </div>
+      <div class="form-group">
+        <label>Dirección Compra</label>
+        <input type="text" id="f_direccion" placeholder="Av. Providencia 123" />
+      </div>
+      <div class="form-group">
+        <label>Valor Compra ($)</label>
+        <input type="number" id="f_valor" placeholder="50000" />
+      </div>
+    </div>
+    <br/>
+    <button class="btn btn-success" onclick="crearDespacho()">Crear Despacho</button>
+  </div>
+
+  <!-- Tabla despachos -->
+  <div class="card">
+    <h2>📦 Despachos Registrados <button class="btn btn-primary btn-sm" style="float:right" onclick="listar()">↻ Actualizar</button></h2>
+    <div id="tableContainer"><p class="empty">Conecta el backend para ver los despachos.</p></div>
+  </div>
+</main>
+
+<script>
+  // Intentar detectar la URL del backend desde variable de entorno inyectada via Nginx
+  // o usar valor por defecto
+  const defaultUrl = window.BACKEND_URL || 'http://localhost:3001';
+  document.getElementById('apiUrl').value = defaultUrl;
+
+  function getUrl() {
+    return document.getElementById('apiUrl').value.replace(/\/$/, '');
+  }
+
+  function showMsg(text, type) {
+    const el = document.getElementById('msg');
+    el.textContent = text;
+    el.className = type;
+    setTimeout(() => el.className = '', 4000);
+  }
+
+  async function checkBackend() {
+    const badge = document.getElementById('statusBadge');
+    badge.className = 'status-badge checking';
+    badge.textContent = 'Verificando…';
+    try {
+      const r = await fetch(`${getUrl()}/api/v1/despachos`, { signal: AbortSignal.timeout(5000) });
+      if (r.ok) {
+        badge.className = 'status-badge ok';
+        badge.textContent = '✔ Backend conectado';
+        listar();
+      } else throw new Error(r.status);
+    } catch(e) {
+      badge.className = 'status-badge error';
+      badge.textContent = '✘ Sin conexión';
+      showMsg(`No se pudo conectar al backend: ${e.message}`, 'error');
+    }
+  }
+
+  async function listar() {
+    try {
+      const r = await fetch(`${getUrl()}/api/v1/despachos`);
+      const data = await r.json();
+      renderTable(data);
+    } catch(e) {
+      document.getElementById('tableContainer').innerHTML = `<p class="empty">Error al cargar: ${e.message}</p>`;
+    }
+  }
+
+  function renderTable(data) {
+    if (!data.length) {
+      document.getElementById('tableContainer').innerHTML = '<p class="empty">No hay despachos registrados aún.</p>';
+      return;
+    }
+    const rows = data.map(d => `
+      <tr>
+        <td>${d.idDespacho}</td>
+        <td>${d.fechaDespacho || '—'}</td>
+        <td>${d.patenteCamion || '—'}</td>
+        <td>${d.intento}</td>
+        <td>${d.idCompra}</td>
+        <td>${d.direccionCompra}</td>
+        <td>$${(d.valorCompra||0).toLocaleString()}</td>
+        <td><span class="badge ${d.despachado ? 'badge-yes':'badge-no'}">${d.despachado ? 'Sí':'No'}</span></td>
+        <td>
+          <button class="btn btn-danger btn-sm" onclick="eliminar(${d.idDespacho})">Eliminar</button>
+        </td>
+      </tr>`).join('');
+    document.getElementById('tableContainer').innerHTML = `
+      <table>
+        <thead><tr>
+          <th>ID</th><th>Fecha</th><th>Patente</th><th>Intento</th>
+          <th>ID Compra</th><th>Dirección</th><th>Valor</th><th>Despachado</th><th>Acciones</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  }
+
+  async function crearDespacho() {
+    const body = {
+      fechaDespacho: document.getElementById('f_fecha').value || null,
+      patenteCamion: document.getElementById('f_patente').value,
+      intento:       parseInt(document.getElementById('f_intento').value) || 1,
+      idCompra:      parseInt(document.getElementById('f_idCompra').value) || null,
+      direccionCompra: document.getElementById('f_direccion').value,
+      valorCompra:   parseInt(document.getElementById('f_valor').value) || 0,
+      despachado:    false
+    };
+    try {
+      const r = await fetch(`${getUrl()}/api/v1/despachos`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (r.ok || r.status === 201) {
+        showMsg('✔ Despacho creado exitosamente', 'ok');
+        listar();
+      } else {
+        showMsg(`Error ${r.status} al crear despacho`, 'error');
+      }
+    } catch(e) {
+      showMsg(`Error: ${e.message}`, 'error');
+    }
+  }
+
+  async function eliminar(id) {
+    if (!confirm(`¿Eliminar despacho ID ${id}?`)) return;
+    try {
+      await fetch(`${getUrl()}/api/v1/despachos/${id}`, { method: 'DELETE' });
+      showMsg('Despacho eliminado', 'ok');
+      listar();
+    } catch(e) {
+      showMsg(`Error: ${e.message}`, 'error');
+    }
+  }
+
+  // Auto-verificar al cargar
+  checkBackend();
+</script>
+</body>
+</html>
