@@ -20,7 +20,7 @@ jobs:
         - name: ⬇️ Checkout del código
           uses: actions/checkout@v4
 
-        - name: 🔐 Configurar credenciales AWS
+        - name: 🔐 Configurar las credenciales AWS
           uses: aws-actions/configure-aws-credentials@v4
           with:
             aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
