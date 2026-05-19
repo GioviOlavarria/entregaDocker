@@ -13,43 +13,39 @@ env:
 
 jobs:
   build-and-push:
-    name: Build & Push a ECR
-    runs-on: ubuntu-latest
+      name: Build & Push a ECR
+      runs-on: ubuntu-latest
 
-    steps:
-      - name: ⬇️ Checkout del código
-        uses: actions/checkout@v4
+      steps:
+        - name: ⬇️ Checkout del código
+          uses: actions/checkout@v4
 
-      - name: 🔐 Configurar credenciales AWS
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+        - name: 🔐 Configurar credenciales AWS
+          uses: aws-actions/configure-aws-credentials@v4
+          with:
+            aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            aws-region: ${{ secrets.AWS_REGION }}
 
-      - name: 🔐 Login a Amazon ECR
-        id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+        - name: 🔐 Login a Amazon ECR
+          id: login-ecr
+          uses: aws-actions/amazon-ecr-login@v2
 
-      - name: 🐳 Build y Push — Backend
-        uses: docker/build-push-action@v5
-        with:
-          context: ./backend
-          dockerfile: ./backend/Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE_BACKEND }}:latest
-            ${{ env.IMAGE_BACKEND }}:${{ github.sha }}
+        - name: 🐳 Build y Push — Backend
+          run: |
+            docker build -t 381492149434.dkr.ecr.us-east-1.amazonaws.com/innovatech-backend:latest \
+                        -t 381492149434.dkr.ecr.us-east-1.amazonaws.com/innovatech-backend:${{ github.sha }} \
+                        -f ./backend/Dockerfile ./backend
+            docker push 381492149434.dkr.ecr.us-east-1.amazonaws.com/innovatech-backend:latest
+            docker push 381492149434.dkr.ecr.us-east-1.amazonaws.com/innovatech-backend:${{ github.sha }}
 
-      - name: 🌐 Build y Push — Frontend
-        uses: docker/build-push-action@v5
-        with:
-          context: ./frontend
-          dockerfile: ./frontend/Dockerfile
-          push: true
-          tags: |
-            ${{ env.IMAGE_FRONTEND }}:latest
-            ${{ env.IMAGE_FRONTEND }}:${{ github.sha }}
+        - name: 🌐 Build y Push — Frontend
+          run: |
+            docker build -t 381492149434.dkr.ecr.us-east-1.amazonaws.com/innovatech-frontend:latest \
+                        -t 381492149434.dkr.ecr.us-east-1.amazonaws.com/innovatech-frontend:${{ github.sha }} \
+                        -f ./frontend/Dockerfile ./frontend
+            docker push 381492149434.dkr.ecr.us-east-1.amazonaws.com/innovatech-frontend:latest
+            docker push 381492149434.dkr.ecr.us-east-1.amazonaws.com/innovatech-frontend:${{ github.sha }}
 
   deploy-backend:
     name: Deploy Backend → EC2
