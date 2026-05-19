@@ -1,51 +1,37 @@
-name: CI/CD Pipeline — Innovatech Chile
+name: CI/CD Pipeline — Innovatech Chile (ECR)
 
-# ============================================================
-# DISPARADOR: Solo la rama "deploy" activa el pipeline
-# Esto separa desarrollo (main) del despliegue productivo
-# ============================================================
 on:
   push:
     branches:
       - deploy
 
-# Variables globales del pipeline
 env:
-  DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-  IMAGE_BACKEND: ${{ secrets.DOCKERHUB_USERNAME }}/innovatech-backend
-  IMAGE_FRONTEND: ${{ secrets.DOCKERHUB_USERNAME }}/innovatech-frontend
+  AWS_REGION: ${{ secrets.AWS_REGION }}
+  ECR_REGISTRY: 381492149434.dkr.ecr.us-east-1.amazonaws.com
+  IMAGE_BACKEND: 381492149434.dkr.ecr.us-east-1.amazonaws.com/innovatech-backend
+  IMAGE_FRONTEND: 381492149434.dkr.ecr.us-east-1.amazonaws.com/innovatech-frontend
 
 jobs:
-  # ============================================================
-  # JOB 1: BUILD Y PUSH DE IMÁGENES DOCKER
-  # ============================================================
   build-and-push:
-    name: Build & Push Docker Images
+    name: Build & Push a ECR
     runs-on: ubuntu-latest
 
     steps:
       - name: ⬇️ Checkout del código
         uses: actions/checkout@v4
 
-      - name: 🔐 Login a Docker Hub
-        uses: docker/login-action@v3
+      - name: 🔐 Configurar credenciales AWS
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
-      # Cache de capas Docker para acelerar builds posteriores
-      - name: 🗂️ Configurar caché Docker
-        uses: actions/cache@v4
-        with:
-          path: /tmp/.buildx-cache
-          key: ${{ runner.os }}-buildx-${{ github.sha }}
-          restore-keys: |
-            ${{ runner.os }}-buildx-
+      - name: 🔐 Login a Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
 
-      - name: 🏗️ Configurar Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: 🐳 Build y Push — Backend (Spring Boot)
+      - name: 🐳 Build y Push — Backend
         uses: docker/build-push-action@v5
         with:
           context: ./backend
@@ -54,10 +40,8 @@ jobs:
           tags: |
             ${{ env.IMAGE_BACKEND }}:latest
             ${{ env.IMAGE_BACKEND }}:${{ github.sha }}
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
 
-      - name: 🌐 Build y Push — Frontend (Nginx)
+      - name: 🌐 Build y Push — Frontend
         uses: docker/build-push-action@v5
         with:
           context: ./frontend
@@ -66,42 +50,29 @@ jobs:
           tags: |
             ${{ env.IMAGE_FRONTEND }}:latest
             ${{ env.IMAGE_FRONTEND }}:${{ github.sha }}
-          cache-from: type=local,src=/tmp/.buildx-cache
-          cache-to: type=local,dest=/tmp/.buildx-cache-new,mode=max
 
-      # Rotar caché para evitar crecimiento indefinido
-      - name: 🔄 Actualizar caché
-        run: |
-          rm -rf /tmp/.buildx-cache
-          mv /tmp/.buildx-cache-new /tmp/.buildx-cache
-
-  # ============================================================
-  # JOB 2: DEPLOY EN EC2 BACKEND
-  # Corre DESPUÉS del build exitoso
-  # ============================================================
   deploy-backend:
     name: Deploy Backend → EC2
     runs-on: ubuntu-latest
     needs: build-and-push
 
     steps:
-      - name: 🚀 Despliegue en EC2 Backend vía Frontend (bastion)
+      - name: 🚀 Despliegue en EC2 Backend vía bastion
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.EC2_FRONTEND_HOST }}
           username: ${{ secrets.EC2_FRONTEND_USER }}
           key: ${{ secrets.EC2_FRONTEND_SSH_KEY }}
-          proxy_host: ""
           script: |
-            # Desde el Frontend, ejecutar comandos en el Backend via SSH
             ssh -i ~/.ssh/innovatech_backend \
                 -o StrictHostKeyChecking=no \
                 ec2-user@${{ secrets.EC2_BACKEND_HOST }} << 'ENDSSH'
-              echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login \
-                -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+              aws ecr get-login-password --region us-east-1 | docker login \
+                --username AWS \
+                --password-stdin 381492149434.dkr.ecr.us-east-1.amazonaws.com
               docker stop innovatech-backend 2>/dev/null || true
               docker rm   innovatech-backend 2>/dev/null || true
-              docker pull ${{ secrets.DOCKERHUB_USERNAME }}/innovatech-backend:latest
+              docker pull 381492149434.dkr.ecr.us-east-1.amazonaws.com/innovatech-backend:latest
               docker run -d \
                 --name innovatech-backend \
                 --restart unless-stopped \
@@ -112,15 +83,11 @@ jobs:
                 -e DB_USERNAME="${{ secrets.DB_USERNAME }}" \
                 -e DB_PASSWORD="${{ secrets.DB_PASSWORD }}" \
                 -e SPRING_DATASOURCE_URL="jdbc:mysql://${{ secrets.DB_ENDPOINT }}:3306/${{ secrets.DB_NAME }}?useSSL=false&serverTimezone=UTC&createDatabaseIfNotExist=true&allowPublicKeyRetrieval=true" \
-                ${{ secrets.DOCKERHUB_USERNAME }}/innovatech-backend:latest
+                381492149434.dkr.ecr.us-east-1.amazonaws.com/innovatech-backend:latest
               docker image prune -f
             ENDSSH
             echo "✅ Backend desplegado exitosamente"
 
-  # ============================================================
-  # JOB 3: DEPLOY EN EC2 FRONTEND
-  # Corre DESPUÉS del build exitoso
-  # ============================================================
   deploy-frontend:
     name: Deploy Frontend → EC2
     runs-on: ubuntu-latest
@@ -134,26 +101,17 @@ jobs:
           username: ${{ secrets.EC2_FRONTEND_USER }}
           key: ${{ secrets.EC2_FRONTEND_SSH_KEY }}
           script: |
-            # Login a Docker Hub en la instancia remota
-            echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login \
-              -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
-
-            # Detener y eliminar contenedor anterior (si existe)
+            aws ecr get-login-password --region us-east-1 | docker login \
+              --username AWS \
+              --password-stdin 381492149434.dkr.ecr.us-east-1.amazonaws.com
             docker stop innovatech-frontend 2>/dev/null || true
             docker rm   innovatech-frontend 2>/dev/null || true
-
-            # Descargar imagen más reciente
-            docker pull ${{ env.IMAGE_FRONTEND }}:latest
-
-            # Iniciar nuevo contenedor
+            docker pull 381492149434.dkr.ecr.us-east-1.amazonaws.com/innovatech-frontend:latest
             docker run -d \
               --name innovatech-frontend \
               --restart unless-stopped \
               -p 80:8080 \
               -p 8080:8080 \
-              ${{ env.IMAGE_FRONTEND }}:latest
-
-            # Limpiar imágenes antiguas
+              381492149434.dkr.ecr.us-east-1.amazonaws.com/innovatech-frontend:latest
             docker image prune -f
-
             echo "✅ Frontend desplegado exitosamente"
